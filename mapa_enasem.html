@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Mapa ENASEM por semana</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; width:100%; height:100%; min-height:100%; font-family:Arial,Helvetica,sans-serif; overflow:hidden; }
+  body { background:#e5e7eb; }
+  #app { display:flex; width:100vw; height:100vh; min-height:600px; position:relative; }
+  #sidebar { width:310px; flex:0 0 310px; height:100%; background:#fff; border-right:1px solid #d1d5db; z-index:1000; overflow:auto; transition:width .25s ease, flex-basis .25s ease, transform .25s ease; box-shadow:2px 0 8px rgba(0,0,0,.08); }
+  #sidebar.collapsed { width:0; flex-basis:0; overflow:hidden; border-right:0; }
+  .sidebar-inner { width:310px; min-height:100%; padding:18px; }
+  .head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
+  h1 { margin:0; font-size:19px; line-height:1.25; color:#1f2937; }
+  .subtitle { margin:5px 0 0; font-size:12px; color:#6b7280; }
+  button { cursor:pointer; }
+  .close { border:0; background:#f3f4f6; border-radius:8px; min-width:40px; min-height:40px; font-size:23px; line-height:1; color:#374151; }
+  label { display:block; margin:0 0 7px; font-weight:700; font-size:13px; color:#374151; }
+  select { width:100%; min-height:44px; padding:9px 11px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:16px; color:#111827; }
+  #summary { margin-top:14px; padding:11px 12px; background:#f3f4f6; border-radius:8px; font-size:13px; color:#374151; }
+  .legend { margin-top:18px; display:grid; gap:9px; }
+  .legend-title { font-weight:700; font-size:13px; color:#374151; margin-bottom:1px; }
+  .legend-row { display:flex; align-items:center; gap:9px; font-size:13px; color:#4b5563; }
+  .legend-dot { width:15px; height:15px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.28); flex:none; }
+  #mapwrap { position:relative; flex:1 1 auto; min-width:0; height:100%; }
+  #map { position:absolute; inset:0; width:100%; height:100%; min-height:600px; background:#dbeafe; }
+  #openSidebar { position:absolute; top:16px; left:16px; z-index:1100; width:46px; height:46px; border:0; border-radius:9px; background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.25); font-size:23px; display:none; align-items:center; justify-content:center; }
+  #sidebar.collapsed ~ #mapwrap #openSidebar { display:flex; }
+  .marker-pin { width:26px; height:26px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); border:3px solid #fff; box-shadow:0 1px 5px rgba(0,0,0,.5); position:relative; }
+  .marker-pin::after { content:""; width:8px; height:8px; background:#fff; border-radius:50%; position:absolute; left:6px; top:6px; }
+  .leaflet-marker-icon { background:transparent !important; border:0 !important; }
+  .popup-title { font-weight:700; font-size:14px; margin-bottom:7px; }
+  .popup-grid { display:grid; grid-template-columns:78px 1fr; gap:4px 8px; font-size:12px; }
+  .popup-grid .k { font-weight:700; color:#4b5563; }
+  .popup-grid .v { color:#111827; word-break:break-all; }
+  .gmaps-btn { display:block; margin-top:12px; padding:11px 14px; border-radius:8px; background:#1a73e8; color:#fff !important; text-align:center; text-decoration:none; font-weight:700; font-size:14px; line-height:1.2; }
+  .gmaps-btn:active { transform:translateY(1px); }
+  .map-error { position:absolute; inset:20px; z-index:1200; display:none; padding:18px; background:#fff; border:1px solid #fecaca; border-radius:10px; color:#991b1b; max-height:180px; }
+  @media (max-width:700px) {
+    #app { min-height:520px; }
+    #map { min-height:520px; }
+    #sidebar { position:absolute; left:0; top:0; bottom:0; width:290px; flex-basis:auto; }
+    #sidebar.collapsed { width:290px; transform:translateX(-100%); }
+    .sidebar-inner { width:290px; }
+    #openSidebar { top:10px; left:10px; }
+  }
+
+  .control-group { margin-bottom:16px; }
+  .planning-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .radio-option { margin:0; min-height:44px; display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid #cbd5e1; border-radius:8px; font-weight:600; background:#fff; cursor:pointer; }
+  .radio-option:has(input:checked) { border-color:#2563eb; background:#eff6ff; }
+  .radio-option input { width:18px; height:18px; margin:0; }
+  .search-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }
+  #cunicaSearch { width:100%; min-width:0; min-height:44px; padding:9px 11px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; color:#111827; }
+  #searchBtn { min-height:44px; padding:0 12px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-weight:700; }
+  .search-msg { min-height:18px; margin-top:5px; font-size:12px; color:#6b7280; }
+
+  /* Botón de ubicación del usuario */
+  #locateBtn { position:absolute; right:12px; bottom:34px; z-index:1100; width:48px; height:48px; border:0; border-radius:50%; background:#fff; color:#374151; box-shadow:0 2px 10px rgba(0,0,0,.3); display:flex; align-items:center; justify-content:center; padding:0; -webkit-tap-highlight-color:transparent; }
+  #locateBtn svg { width:26px; height:26px; }
+  #locateBtn.active { background:#2563eb; color:#fff; }
+  #locateBtn.searching svg { animation:locpulse 1s ease-in-out infinite; }
+  @keyframes locpulse { 50% { opacity:.35; } }
+  #locToast { position:absolute; left:50%; bottom:92px; transform:translateX(-50%); z-index:1150; max-width:calc(100% - 32px); padding:9px 14px; border-radius:8px; background:rgba(17,24,39,.92); color:#fff; font-size:13px; line-height:1.3; text-align:center; display:none; pointer-events:none; }
+  .user-loc-dot { width:18px; height:18px; border-radius:50%; background:#2563eb; border:3px solid #fff; box-shadow:0 0 0 2px rgba(37,99,235,.35), 0 1px 6px rgba(0,0,0,.5); animation:userpulse 2s ease-out infinite; }
+  @keyframes userpulse { 0% { box-shadow:0 0 0 0 rgba(37,99,235,.55), 0 1px 6px rgba(0,0,0,.5); } 100% { box-shadow:0 0 0 18px rgba(37,99,235,0), 0 1px 6px rgba(0,0,0,.5); } }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar" aria-label="Panel de semanas">
+    <div class="sidebar-inner">
+      <div class="head">
+        <div><h1>ENASEM · Planeación y semanas</h1><p class="subtitle">Consulta la planeación, semana o localiza un CUNICAH.</p></div>
+        <button id="closeSidebar" class="close" type="button" aria-label="Ocultar panel">×</button>
+      </div>
+      <div class="control-group">
+        <label>Planeación</label>
+        <div class="planning-options" role="radiogroup" aria-label="Tipo de planeación">
+          <label class="radio-option"><input type="radio" name="planning" value="Original"> <span>Original</span></label>
+          <label class="radio-option"><input type="radio" name="planning" value="Ajustada" checked> <span>Ajustada</span></label>
+        </div>
+      </div>
+      <div class="control-group">
+        <label for="cunicaSearch">Buscar por CUNICAH</label>
+        <div class="search-row"><input id="cunicaSearch" type="search" inputmode="numeric" placeholder="Ej. 7433" autocomplete="off"><button id="searchBtn" type="button">Buscar</button></div>
+        <div id="searchMsg" class="search-msg" aria-live="polite"></div>
+      </div>
+      <label for="weekSelect">Semana a desplegar</label>
+      <select id="weekSelect">
+        <option value="all">Todas las semanas</option>
+        <option value="1">Semana 1</option><option value="2">Semana 2</option><option value="3">Semana 3</option><option value="4">Semana 4</option><option value="5">Semana 5</option>
+      </select>
+      <div id="summary" aria-live="polite"></div>
+      <div class="legend"><div class="legend-title">Leyenda</div>
+        <div class="legend-row"><span class="legend-dot" style="background:#2563eb"></span>Semana 1</div>
+        <div class="legend-row"><span class="legend-dot" style="background:#16a34a"></span>Semana 2</div>
+        <div class="legend-row"><span class="legend-dot" style="background:#ea580c"></span>Semana 3</div>
+        <div class="legend-row"><span class="legend-dot" style="background:#9333ea"></span>Semana 4</div>
+        <div class="legend-row"><span class="legend-dot" style="background:#dc2626"></span>Semana 5</div>
+      </div>
+    </div>
+  </aside>
+  <div id="mapwrap">
+    <div id="map" aria-label="Mapa ENASEM"></div>
+    <button id="openSidebar" type="button" aria-label="Mostrar panel">☰</button>
+    <button id="locateBtn" type="button" aria-label="Activar mi ubicación" aria-pressed="false" title="Mi ubicación">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>
+    </button>
+    <div id="locToast" role="status" aria-live="polite"></div>
+    <div id="mapError" class="map-error"><strong>No fue posible cargar el mapa base.</strong><br>Comprueba que el equipo tenga acceso a Internet y vuelve a abrir el archivo.</div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function() {
+  const points = [{"PLANEACIÓN":"Original","CVEGEO":"0801300010382057","xcoord":-107.957853562426,"ycoord":30.3956279588955,"CUNICAH":4071,"SUBHOG":12,"NP":20,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0801300010857027","xcoord":-107.960394013227,"ycoord":30.3856099581833,"CUNICAH":4073,"SUBHOG":1,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0801900012306020","xcoord":-106.020638223086,"ycoord":28.6185168791704,"CUNICAH":5366,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900013234009","xcoord":-106.096325399079,"ycoord":28.639926536382,"CUNICAH":5386,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900013855013","xcoord":-106.089168944947,"ycoord":28.6049165721199,"CUNICAH":5401,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900013234035","xcoord":-106.097350830256,"ycoord":28.6423230010848,"CUNICAH":5403,"SUBHOG":1,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900016046042","xcoord":-106.031950262612,"ycoord":28.5941793758826,"CUNICAH":5407,"SUBHOG":11,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900014054003","xcoord":-105.997852246563,"ycoord":28.59779150994,"CUNICAH":5408,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900016101008","xcoord":-106.038286595541,"ycoord":28.5932856926557,"CUNICAH":5425,"SUBHOG":11,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900015936048","xcoord":-106.020038817327,"ycoord":28.663152562118,"CUNICAH":5472,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900015118012","xcoord":-106.088270816972,"ycoord":28.6001946634897,"CUNICAH":5479,"SUBHOG":11,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900015531040","xcoord":-106.09849915275,"ycoord":28.5834866838813,"CUNICAH":5480,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900015669045","xcoord":-106.019680390589,"ycoord":28.591422253173,"CUNICAH":5482,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"080190001322A010","xcoord":-106.065384697008,"ycoord":28.6575562500226,"CUNICAH":5488,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0803400030206001","xcoord":-107.668915306116,"ycoord":29.6107465842917,"CUNICAH":7116,"SUBHOG":1,"NP":20,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0803700017076043","xcoord":-106.358145629727,"ycoord":31.6825557292861,"CUNICAH":7360,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0803700017023020","xcoord":-106.410652633873,"ycoord":31.6235165989875,"CUNICAH":7365,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"080370001425A011","xcoord":-106.503037823039,"ycoord":31.7093574443461,"CUNICAH":7370,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700014230026","xcoord":-106.515189233049,"ycoord":31.7072876554976,"CUNICAH":7371,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700013552004","xcoord":-106.509822025601,"ycoord":31.754585878094,"CUNICAH":7384,"SUBHOG":15,"NP":11,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700010810002","xcoord":-106.489723906568,"ycoord":31.745483000661,"CUNICAH":7387,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700014508027","xcoord":-106.450642987939,"ycoord":31.66121754941,"CUNICAH":7393,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700011503058","xcoord":-106.484915043322,"ycoord":31.7075380389421,"CUNICAH":7401,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700014423016","xcoord":-106.38185781711,"ycoord":31.6789101072641,"CUNICAH":7414,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700010454005","xcoord":-106.459101565751,"ycoord":31.7479148110491,"CUNICAH":7433,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700014550044","xcoord":-106.398029457969,"ycoord":31.6503974511889,"CUNICAH":7456,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0801900015156007","xcoord":-106.09672696177,"ycoord":28.5953124956985,"CUNICAH":11627,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900013766029","xcoord":-106.072203307221,"ycoord":28.6136277067052,"CUNICAH":11631,"SUBHOG":11,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900011350026","xcoord":-106.063813414236,"ycoord":28.6333345324443,"CUNICAH":11640,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900013287022","xcoord":-106.061396156832,"ycoord":28.6520103842246,"CUNICAH":11645,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900013713035","xcoord":-106.044466020133,"ycoord":28.6401491438894,"CUNICAH":11654,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900013215032","xcoord":-106.068445569178,"ycoord":28.6570664024829,"CUNICAH":11667,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0805000010719049","xcoord":-107.910381164634,"ycoord":30.4317115692207,"CUNICAH":11672,"SUBHOG":1,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0803700012959005","xcoord":-106.516037236364,"ycoord":31.7672224809802,"CUNICAH":11685,"SUBHOG":1,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700013590031","xcoord":-106.503135369946,"ycoord":31.7472749270055,"CUNICAH":11686,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0803700011683010","xcoord":-106.481460968398,"ycoord":31.6830883263244,"CUNICAH":11688,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0801900013554028","xcoord":-106.065887670809,"ycoord":28.6345430881999,"CUNICAH":15957,"SUBHOG":0,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900014980039","xcoord":-106.043352132417,"ycoord":28.6371610211901,"CUNICAH":15967,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0801900015090036","xcoord":-106.10750005942,"ycoord":28.6032027409592,"CUNICAH":15969,"SUBHOG":0,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Original","CVEGEO":"0801900015283015","xcoord":-106.039318639796,"ycoord":28.6017126847153,"CUNICAH":15974,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0803700011715024","xcoord":-106.442686073525,"ycoord":31.6733712134831,"CUNICAH":15995,"SUBHOG":0,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"080370001222A134","xcoord":-106.352500379458,"ycoord":31.6885008241252,"CUNICAH":15997,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0803700012770026","xcoord":-106.443747789747,"ycoord":31.702669773638,"CUNICAH":16000,"SUBHOG":0,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Original","CVEGEO":"0803700015258016","xcoord":-106.408533792906,"ycoord":31.7004539914844,"CUNICAH":16005,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0803700015258016","xcoord":-106.412675378899,"ycoord":31.7026818259638,"CUNICAH":16007,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0801300010537042","xcoord":-107.949329537748,"ycoord":30.3708571046693,"CUNICAH":16026,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0801300010537013","xcoord":-107.948846767912,"ycoord":30.3719580509887,"CUNICAH":16028,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0801300010537043","xcoord":-107.950010763577,"ycoord":30.3706462098297,"CUNICAH":16030,"SUBHOG":12,"NP":20,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0804000341246026","xcoord":-108.065040364148,"ycoord":29.4539382794493,"CUNICAH":16049,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Original","CVEGEO":"0803700016595046","xcoord":-106.402410184733,"ycoord":31.5832724118153,"CUNICAH":21071,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"080370001521A044","xcoord":-106.369348922835,"ycoord":31.6445901910435,"CUNICAH":21083,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0801900018305002","xcoord":-105.962210568634,"ycoord":28.6544562383443,"CUNICAH":21091,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Original","CVEGEO":"0803700015883017","xcoord":-106.353155787712,"ycoord":31.6226759509734,"CUNICAH":21109,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Original","CVEGEO":"0803700011471041","xcoord":-106.490081240679,"ycoord":31.7177979823339,"CUNICAH":24372,"SUBHOG":0,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801300010382057","xcoord":-107.957853562426,"ycoord":30.3956279588955,"CUNICAH":4071,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801300010857027","xcoord":-107.960394013227,"ycoord":30.3856099581833,"CUNICAH":4073,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900012306020","xcoord":-106.020638223086,"ycoord":28.6185168791704,"CUNICAH":5366,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013234009","xcoord":-106.096325399079,"ycoord":28.639926536382,"CUNICAH":5386,"SUBHOG":12,"NP":20,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013855013","xcoord":-106.089168944947,"ycoord":28.6049165721199,"CUNICAH":5401,"SUBHOG":12,"NP":20,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013234035","xcoord":-106.097350830256,"ycoord":28.6423230010848,"CUNICAH":5403,"SUBHOG":1,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900016046042","xcoord":-106.031950262612,"ycoord":28.5941793758826,"CUNICAH":5407,"SUBHOG":11,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900014054003","xcoord":-105.997852246563,"ycoord":28.59779150994,"CUNICAH":5408,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900016101008","xcoord":-106.038286595541,"ycoord":28.5932856926557,"CUNICAH":5425,"SUBHOG":11,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015936048","xcoord":-106.020038817327,"ycoord":28.663152562118,"CUNICAH":5472,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015118012","xcoord":-106.088270816972,"ycoord":28.6001946634897,"CUNICAH":5479,"SUBHOG":11,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015531040","xcoord":-106.09849915275,"ycoord":28.5834866838813,"CUNICAH":5480,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015669045","xcoord":-106.019680390589,"ycoord":28.591422253173,"CUNICAH":5482,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"080190001322A010","xcoord":-106.065384697008,"ycoord":28.6575562500226,"CUNICAH":5488,"SUBHOG":12,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803400030206001","xcoord":-107.668915306116,"ycoord":29.6107465842917,"CUNICAH":7116,"SUBHOG":1,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700017076043","xcoord":-106.358145629727,"ycoord":31.6825557292861,"CUNICAH":7360,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700017023020","xcoord":-106.410652633873,"ycoord":31.6235165989875,"CUNICAH":7365,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"080370001425A011","xcoord":-106.503037823039,"ycoord":31.7093574443461,"CUNICAH":7370,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700014230026","xcoord":-106.515189233049,"ycoord":31.7072876554976,"CUNICAH":7371,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700013552004","xcoord":-106.509822025601,"ycoord":31.754585878094,"CUNICAH":7384,"SUBHOG":15,"NP":11,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700010810002","xcoord":-106.489723906568,"ycoord":31.745483000661,"CUNICAH":7387,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700014508027","xcoord":-106.450642987939,"ycoord":31.66121754941,"CUNICAH":7393,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700011503058","xcoord":-106.484915043322,"ycoord":31.7075380389421,"CUNICAH":7401,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700014423016","xcoord":-106.38185781711,"ycoord":31.6789101072641,"CUNICAH":7414,"SUBHOG":12,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700010454005","xcoord":-106.459101565751,"ycoord":31.7479148110491,"CUNICAH":7433,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700014550044","xcoord":-106.398029457969,"ycoord":31.6503974511889,"CUNICAH":7456,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015156007","xcoord":-106.09672696177,"ycoord":28.5953124956985,"CUNICAH":11627,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013766029","xcoord":-106.072203307221,"ycoord":28.6136277067052,"CUNICAH":11631,"SUBHOG":11,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900011350026","xcoord":-106.063813414236,"ycoord":28.6333345324443,"CUNICAH":11640,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013287022","xcoord":-106.061396156832,"ycoord":28.6520103842246,"CUNICAH":11645,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013713035","xcoord":-106.044466020133,"ycoord":28.6401491438894,"CUNICAH":11654,"SUBHOG":1,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013215032","xcoord":-106.068445569178,"ycoord":28.6570664024829,"CUNICAH":11667,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0805000010719049","xcoord":-107.910381164634,"ycoord":30.4317115692207,"CUNICAH":11672,"SUBHOG":1,"NP":10,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700012959005","xcoord":-106.516037236364,"ycoord":31.7672224809802,"CUNICAH":11685,"SUBHOG":1,"NP":20,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700013590031","xcoord":-106.503135369946,"ycoord":31.7472749270055,"CUNICAH":11686,"SUBHOG":1,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700011683010","xcoord":-106.481460968398,"ycoord":31.6830883263244,"CUNICAH":11688,"SUBHOG":1,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900013554028","xcoord":-106.065887670809,"ycoord":28.6345430881999,"CUNICAH":15957,"SUBHOG":0,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900014980039","xcoord":-106.043352132417,"ycoord":28.6371610211901,"CUNICAH":15967,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015090036","xcoord":-106.10750005942,"ycoord":28.6032027409592,"CUNICAH":15969,"SUBHOG":0,"NP":20,"SEMANA":4},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900015283015","xcoord":-106.039318639796,"ycoord":28.6017126847153,"CUNICAH":15974,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700011715024","xcoord":-106.442686073525,"ycoord":31.6733712134831,"CUNICAH":15995,"SUBHOG":0,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"080370001222A134","xcoord":-106.352500379458,"ycoord":31.6885008241252,"CUNICAH":15997,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700012770026","xcoord":-106.443747789747,"ycoord":31.702669773638,"CUNICAH":16000,"SUBHOG":0,"NP":10,"SEMANA":1},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700015258016","xcoord":-106.408533792906,"ycoord":31.7004539914844,"CUNICAH":16005,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700015258016","xcoord":-106.412675378899,"ycoord":31.7026818259638,"CUNICAH":16007,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801300010537042","xcoord":-107.949329537748,"ycoord":30.3708571046693,"CUNICAH":16026,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801300010537013","xcoord":-107.948846767912,"ycoord":30.3719580509887,"CUNICAH":16028,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801300010537043","xcoord":-107.950010763577,"ycoord":30.3706462098297,"CUNICAH":16030,"SUBHOG":12,"NP":20,"SEMANA":5},{"PLANEACIÓN":"Ajustada","CVEGEO":"0804000341246026","xcoord":-108.065040364148,"ycoord":29.4539382794493,"CUNICAH":16049,"SUBHOG":0,"NP":10,"SEMANA":5},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700016595046","xcoord":-106.402410184733,"ycoord":31.5832724118153,"CUNICAH":21071,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"080370001521A044","xcoord":-106.369348922835,"ycoord":31.6445901910435,"CUNICAH":21083,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0801900018305002","xcoord":-105.962210568634,"ycoord":28.6544562383443,"CUNICAH":21091,"SUBHOG":0,"NP":10,"SEMANA":3},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700015883017","xcoord":-106.353155787712,"ycoord":31.6226759509734,"CUNICAH":21109,"SUBHOG":0,"NP":10,"SEMANA":2},{"PLANEACIÓN":"Ajustada","CVEGEO":"0803700011471041","xcoord":-106.490081240679,"ycoord":31.7177979823339,"CUNICAH":24372,"SUBHOG":0,"NP":10,"SEMANA":1}];
+  const weekColors={1:'#2563eb',2:'#16a34a',3:'#ea580c',4:'#9333ea',5:'#dc2626'};
+  const sidebar=document.getElementById('sidebar');
+  const weekSelect=document.getElementById('weekSelect');
+  const summary=document.getElementById('summary');
+  const cunicaSearch=document.getElementById('cunicaSearch');
+  const searchMsg=document.getElementById('searchMsg');
+  const mapError=document.getElementById('mapError');
+
+  if (typeof L === 'undefined') { mapError.style.display='block'; return; }
+
+  const map=L.map('map',{zoomControl:true, preferCanvas:true});
+  const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap contributors'});
+  tiles.addTo(map);
+  tiles.on('tileerror', function() { /* Map remains usable even if an individual tile fails. */ });
+  const markerLayer=L.layerGroup().addTo(map);
+
+  function popupHtml(p) {
+    const lat = Number(p.ycoord);
+    const lng = Number(p.xcoord);
+    const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(lat + ',' + lng);
+    return '<div class="popup-title">'+p['PLANEACIÓN']+' · Semana '+p.SEMANA+'</div><div class="popup-grid">'+
+      '<div class="k">CVEGEO</div><div class="v">'+p.CVEGEO+'</div>'+
+      '<div class="k">CUNICAH</div><div class="v">'+p.CUNICAH+'</div>'+
+      '<div class="k">SUBHOG</div><div class="v">'+p.SUBHOG+'</div>'+
+      '<div class="k">NP</div><div class="v">'+p.NP+'</div></div>'+
+      '<a class="gmaps-btn" href="'+mapsUrl+'" target="_blank" rel="noopener noreferrer">Google Maps</a>';
+  }
+  function iconFor(week) {
+    const color=weekColors[week]||'#475569';
+    return L.divIcon({className:'', html:'<div class="marker-pin" style="background:'+color+'"></div>', iconSize:[30,36], iconAnchor:[15,34], popupAnchor:[0,-32]});
+  }
+  function selectedPlanning(){
+    const checked=document.querySelector('input[name="planning"]:checked');
+    return checked ? checked.value : 'Ajustada';
+  }
+  function filteredPoints(){
+    const selected=weekSelect.value;
+    const planning=selectedPlanning();
+    return points.filter(p => p['PLANEACIÓN']===planning && (selected==='all' || String(p.SEMANA)===selected));
+  }
+  function render(focusCunica=null) {
+    markerLayer.clearLayers();
+    const selected=weekSelect.value;
+    const planning=selectedPlanning();
+    const filtered=filteredPoints();
+    const coords=[];
+    let focusMarker=null, focusPoint=null;
+    filtered.forEach(p=>{
+      const lat=Number(p.ycoord), lng=Number(p.xcoord);
+      if(!Number.isFinite(lat)||!Number.isFinite(lng)) return;
+      const marker=L.marker([lat,lng],{icon:iconFor(p.SEMANA),title:p['PLANEACIÓN']+' · Semana '+p.SEMANA+' · CUNICAH '+p.CUNICAH}).bindPopup(popupHtml(p)).addTo(markerLayer);
+      coords.push([lat,lng]);
+      if(focusCunica!==null && String(p.CUNICAH).trim()===String(focusCunica).trim()){ focusMarker=marker; focusPoint=[lat,lng]; }
+    });
+    summary.textContent=coords.length+' marcas visibles · '+planning+(selected==='all'?' · Todas las semanas':' · Semana '+selected);
+    if(focusPoint){ map.setView(focusPoint,16); setTimeout(()=>focusMarker.openPopup(),120); }
+    else if(coords.length===1) map.setView(coords[0],14);
+    else if(coords.length>1) map.fitBounds(coords,{padding:[45,45],maxZoom:14});
+    setTimeout(()=>map.invalidateSize(true),60);
+  }
+  function searchCunica(){
+    const q=cunicaSearch.value.trim();
+    if(!q){ searchMsg.textContent='Escribe un CUNICAH para buscar.'; return; }
+    const planning=selectedPlanning();
+    const inPlanning=points.filter(p=>p['PLANEACIÓN']===planning && String(p.CUNICAH).trim()===q);
+    if(!inPlanning.length){ searchMsg.textContent='No se encontró CUNICAH '+q+' en planeación '+planning+'.'; return; }
+    const weeks=[...new Set(inPlanning.map(p=>String(p.SEMANA)))];
+    if(weekSelect.value!=='all' && !weeks.includes(weekSelect.value)){ weekSelect.value='all'; }
+    searchMsg.textContent='CUNICAH '+q+' localizado en planeación '+planning+'.';
+    render(q);
+  }
+  weekSelect.addEventListener('change',()=>{searchMsg.textContent='';render();});
+  document.querySelectorAll('input[name="planning"]').forEach(r=>r.addEventListener('change',()=>{searchMsg.textContent='';render();}));
+  document.getElementById('searchBtn').addEventListener('click',searchCunica);
+  cunicaSearch.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchCunica();}});
+  document.getElementById('closeSidebar').addEventListener('click',()=>{sidebar.classList.add('collapsed');setTimeout(()=>map.invalidateSize(true),300);});
+  document.getElementById('openSidebar').addEventListener('click',()=>{sidebar.classList.remove('collapsed');setTimeout(()=>map.invalidateSize(true),300);});
+  window.addEventListener('resize',()=>map.invalidateSize(false));
+
+  // ---- Ubicación del usuario (activar / desactivar) ----
+  const locateBtn=document.getElementById('locateBtn');
+  const locToast=document.getElementById('locToast');
+  let watchId=null, userMarker=null, userCircle=null, firstFix=false, toastTimer=null;
+  function toast(msg,ms){
+    locToast.textContent=msg; locToast.style.display='block';
+    clearTimeout(toastTimer);
+    if(ms) toastTimer=setTimeout(()=>{locToast.style.display='none';},ms);
+  }
+  function setLocateState(on,searching){
+    locateBtn.classList.toggle('active',on);
+    locateBtn.classList.toggle('searching',!!searching);
+    locateBtn.setAttribute('aria-pressed',on?'true':'false');
+    locateBtn.setAttribute('aria-label',on?'Desactivar mi ubicación':'Activar mi ubicación');
+  }
+  function stopLocate(){
+    if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+    if(userMarker){ map.removeLayer(userMarker); userMarker=null; }
+    if(userCircle){ map.removeLayer(userCircle); userCircle=null; }
+    firstFix=false;
+    setLocateState(false,false);
+  }
+  function onLocate(pos){
+    const ll=[pos.coords.latitude,pos.coords.longitude], acc=pos.coords.accuracy||0;
+    if(!userMarker){
+      userCircle=L.circle(ll,{radius:acc,interactive:false,color:'#2563eb',weight:1,fillColor:'#2563eb',fillOpacity:.12}).addTo(map);
+      userMarker=L.marker(ll,{interactive:false,keyboard:false,zIndexOffset:1000,icon:L.divIcon({className:'',html:'<div class="user-loc-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+    } else { userMarker.setLatLng(ll); userCircle.setLatLng(ll).setRadius(acc); }
+    if(!firstFix){
+      firstFix=true;
+      setLocateState(true,false);
+      map.setView(ll,Math.max(map.getZoom(),16));
+      toast('Ubicación activada (±'+Math.round(acc)+' m)',2500);
+    }
+  }
+  function onLocateError(err){
+    const msgs={1:'Permiso de ubicación denegado. Habilítalo en el navegador.',2:'No se pudo determinar tu ubicación.',3:'Se agotó el tiempo para obtener tu ubicación.'};
+    stopLocate();
+    toast(msgs[err.code]||'No se pudo obtener tu ubicación.',4000);
+  }
+  function startLocate(){
+    if(!('geolocation' in navigator)){ toast('Tu navegador no soporta geolocalización.',4000); return; }
+    setLocateState(true,true);
+    toast('Buscando tu ubicación…');
+    watchId=navigator.geolocation.watchPosition(onLocate,onLocateError,{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  }
+  locateBtn.addEventListener('click',()=>{
+    if(watchId!==null){ stopLocate(); toast('Ubicación desactivada',1500); } else { startLocate(); }
+  });
+  L.DomEvent.disableClickPropagation(locateBtn);
+  window.addEventListener('pagehide',()=>{ if(watchId!==null) navigator.geolocation.clearWatch(watchId); });
+
+  render();
+  setTimeout(()=>map.invalidateSize(true),250);
+})();
+</script>
+</body>
+</html>
